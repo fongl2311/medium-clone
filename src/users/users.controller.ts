@@ -1,51 +1,82 @@
-import { Controller, Post, Body, Get, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  UseGuards,
+  Request,
+  HttpCode,
+  HttpStatus,
+  Put,
+  ValidationPipe,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersService, UserResponse } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { AuthGuard } from '@nestjs/passport';
-
-class UserRequest<T> {
-  user: T;
-}
+import { UpdateUserDto } from './dto/update-user.dto';
+import { User } from '@prisma/client';
+import { Request as ExpressRequest } from 'express';
 
 @Controller()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // Đăng ký: POST /api/users
   @Post('users')
   async register(
-    @Body('user') createUserDto: CreateUserDto,
-  ): Promise<{ user: UserResponse }> {
-    const userResponse = await this.usersService.create(createUserDto);
-    return { user: userResponse };
+    @Body('user', new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    createUserDto: CreateUserDto,
+  ): Promise<UserResponse> {
+    return this.usersService.create(createUserDto);
   }
 
-  // Đăng nhập: POST /api/users/login
+
+  @HttpCode(HttpStatus.OK)
   @Post('users/login')
   async login(
-    @Body('user') loginUserDto: LoginUserDto,
-  ): Promise<{ user: UserResponse }> {
-    const userResponse = await this.usersService.login(loginUserDto);
-    return { user: userResponse };
+    @Body('user', new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    loginUserDto: LoginUserDto,
+  ): Promise<UserResponse> {
+    return this.usersService.login(loginUserDto);
   }
 
-  // Lấy thông tin user hiện tại: GET /api/user
   @UseGuards(AuthGuard('jwt'))
   @Get('user')
-  async getCurrentUser(@Request() req): Promise<{ user: UserResponse }> {
-    const user = await this.usersService.findById(req.user.sub);
-    
-    const token = req.headers.authorization.split(' ')[1];
-    
+  async getCurrentUser(
+  @Request() req: ExpressRequest & { user: { sub: number; username: string; email: string } },
+  ): Promise<UserResponse> {
+  const fullUser = await this.usersService.findById(req.user.sub);
+
+    if (!fullUser) {
+      throw new NotFoundException('Không tìm thấy người dùng tương ứng với token.');
+    }
+    const token = req.headers.authorization!.split(' ')[1];
     return {
       user: {
-        email: user.email,
+        email: fullUser.email,
         token: token,
-        username: user.username,
-        bio: user.bio,
-        image: user.image,
+        username: fullUser.username,
+        bio: fullUser.bio,
+        image: fullUser.image,
       },
     };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Put('user')
+  async updateCurrentUser(
+    @Request() req: ExpressRequest & { user: { id: number } }, 
+    @Body('user', new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserResponse> {
+    const userId = req.user.id; 
+    
+    if (userId === undefined || userId === null) {
+        throw new UnauthorizedException("Không thể lấy ID người dùng từ token.");
+    }
+    
+    return this.usersService.update(userId, updateUserDto);
   }
 }
