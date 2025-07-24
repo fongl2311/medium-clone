@@ -3,68 +3,72 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { User } from '@prisma/client';
+import { UpdateUserDto } from './dto/update-user.dto';
 
-export type User = any;
 export interface UserResponse {
-  email: string;
-  token: string;
-  username: string;
-  bio: string | null;
-  image: string | null;
+  user: {
+    email: string;
+    token: string;
+    username: string;
+    bio: string | null;
+    image: string | null;
+  };
 }
 
 @Injectable()
 export class UsersService {
-  private readonly users: User[] = [];
-
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   private buildUserResponse(user: User): UserResponse {
-    const token = this.jwtService.sign({ 
-        sub: user.id, 
-        username: user.username, 
-        email: user.email 
-    });
+    const payload = {
+      id: user.id, 
+      username: user.username,
+      email: user.email,
+    };
+    const token = this.jwtService.sign(payload);
 
     return {
-      email: user.email,
-      token: token,
-      username: user.username,
-      bio: user.bio || null,
-      image: user.image || null,
+      user: {
+        email: user.email,
+        token: token,
+        username: user.username,
+        bio: user.bio,
+        image: user.image,
+      },
     };
   }
 
   async create(dto: CreateUserDto): Promise<UserResponse> {
-    const existingUser = this.users.find(u => u.username === dto.username || u.email === dto.email);
-    if (existingUser) {
-      throw new ConflictException('Username hoặc email đã được sử dụng.');
-    }
+    const existingUser = await this.prisma.user.findFirst({ where: { OR: [{ email: dto.email }, { username: dto.username }] } });
+    if (existingUser) throw new ConflictException('Username hoặc email đã được sử dụng.');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-
-    const newUser = {
-      id: Date.now(), 
-      username: dto.username,
-      email: dto.email,
-      password: hashedPassword,
-    };
-    this.users.push(newUser);
-
+    const newUser = await this.prisma.user.create({ data: { ...dto, password: hashedPassword } });
     return this.buildUserResponse(newUser);
   }
 
   async login(dto: LoginUserDto): Promise<UserResponse> {
-    const user = this.users.find(u => u.email === dto.email);
-
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user || !(await bcrypt.compare(dto.password, user.password))) {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác.');
     }
-
     return this.buildUserResponse(user);
   }
 
-  async findById(id: number): Promise<User> {
-    return this.users.find(u => u.id === id);
+  async update(userId: number, dto: UpdateUserDto): Promise<UserResponse> {
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+    const updatedUser = await this.prisma.user.update({ where: { id: userId }, data: dto });
+    return this.buildUserResponse(updatedUser);
+  }
+
+  async findById(id: number): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id } });
   }
 }
