@@ -25,7 +25,13 @@ export class UsersService {
   ) {}
 
   private buildUserResponse(user: User): UserResponse {
-    const token = this.jwtService.sign({ sub: user.id, username: user.username, email: user.email });
+    const payload = {
+      id: user.id, 
+      username: user.username,
+      email: user.email,
+    };
+    const token = this.jwtService.sign(payload);
+
     return {
       user: {
         email: user.email,

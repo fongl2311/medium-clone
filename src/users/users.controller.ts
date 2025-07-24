@@ -44,25 +44,36 @@ export class UsersController {
 
   @UseGuards(AuthGuard('jwt'))
   @Get('user')
-  async getCurrentUser(
-  @Request() req: ExpressRequest & { user: { sub: number; username: string; email: string } },
-  ): Promise<UserResponse> {
-  const fullUser = await this.usersService.findById(req.user.sub);
+  async getCurrentUser(@Request() req: ExpressRequest & { user: { id: number; username: string; email: string } }): Promise<UserResponse> {
+      const userId = req.user.id; 
+      
+      if (userId === undefined || userId === null) { 
+        throw new UnauthorizedException('Không thể lấy ID người dùng từ token.');
+      }
 
-    if (!fullUser) {
-      throw new NotFoundException('Không tìm thấy người dùng tương ứng với token.');
+      const fullUser = await this.usersService.findById(userId);
+
+      if (!fullUser) {
+        throw new NotFoundException('Không tìm thấy người dùng tương ứng với token.');
+      }
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        throw new UnauthorizedException('Authorization header không tồn tại.');
+      }
+      const token = authHeader.split(' ')[1];
+
+      return {
+        user: {
+          email: fullUser.email,
+          token: token,
+          username: fullUser.username,
+          bio: fullUser.bio,
+          image: fullUser.image,
+        },
+      };
     }
-    const token = req.headers.authorization!.split(' ')[1];
-    return {
-      user: {
-        email: fullUser.email,
-        token: token,
-        username: fullUser.username,
-        bio: fullUser.bio,
-        image: fullUser.image,
-      },
-    };
-  }
+
 
   @UseGuards(AuthGuard('jwt'))
   @Put('user')
