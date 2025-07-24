@@ -19,6 +19,11 @@ import { AuthGuard } from '@nestjs/passport';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from '@prisma/client';
 import { Request as ExpressRequest } from 'express';
+import { Request as ExpressRequest } from 'express';
+
+class UserRequest<T> {
+  user: T;
+}
 
 @Controller()
 export class UsersController {
@@ -89,5 +94,5 @@ export class UsersController {
     }
     
     return this.usersService.update(userId, updateUserDto);
-  }
+    }
 }

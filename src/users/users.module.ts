@@ -4,7 +4,6 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { PrismaModule } from '../prisma/prisma.module';
 import { ConfigModule, ConfigService } from '@nestjs/config'; 
 @Module({
   imports: [
