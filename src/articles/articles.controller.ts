@@ -15,11 +15,10 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import {
   ArticlesService,
-  CreateArticleDto,
-  UpdateArticleDto,
-  SingleArticleResponse,
   ArticlesResponse,
 } from './articles.service';
+import { CreateArticleDto } from "./dto/create-article.dto";
+import { UpdateArticleDto } from "./dto/update-article.dto";
 import { User } from '@prisma/client';
 import { OptionalAuthGuard } from "../auth/optional-auth.guard";
 import { Request as ExpressRequest } from 'express';
@@ -65,10 +64,10 @@ export class ArticlesController {
     return this.articlesService.updateArticle(slug, req.user.id, updateArticleDto);
   }
 
-  // DELETE /api/articles/:slug - Delete Article
   @UseGuards(AuthGuard('jwt'))
   @Delete(':slug')
-  async deleteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
-    return this.articlesService.deleteArticle(slug, req.user.id);
+  async deleteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }): Promise<{ message: string }> {
+    const userId = req.user.id;
+    return this.articlesService.deleteArticle(slug, userId); 
   }
 }
