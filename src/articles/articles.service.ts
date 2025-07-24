@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
-import { PrismaModule } from 'src/prisma/prisma.module';
 import { User, Article } from '@prisma/client';
 import slugify from 'slugify';
 
@@ -132,11 +131,23 @@ export class ArticlesService {
     return this.formatArticleResponse(updatedArticle);
   }
 
-  async deleteArticle(slug: string, userId: number): Promise<void> {
-    await this.prisma.article.delete({
-      where: { slug, authorId: userId },
-    });
+async deleteArticle(slug: string, userId: number): Promise<{ message: string }> { 
+  const existingArticle = await this.prisma.article.findFirst({
+    where: { 
+      slug: slug,
+      authorId: userId 
+  });
+
+  if (!existingArticle) {
+    throw new NotFoundException('Bài viết không tồn tại hoặc bạn không có quyền xóa.');
   }
+
+  await this.prisma.article.delete({
+    where: { id: existingArticle.id },
+  });
+  
+  return { message: 'Bài viết đã được xóa thành công.' };
+}
 
   private generateSlug(title: string): string {
     const baseSlug = slugify(title, { lower: true, strict: true });
@@ -165,4 +176,3 @@ export class ArticlesService {
     };
     }
 }
-export { CreateArticleDto , UpdateArticleDto};
