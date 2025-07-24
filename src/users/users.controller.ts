@@ -1,8 +1,9 @@
-import { Controller, Post, Body, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Request , UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { UsersService, UserResponse } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { AuthGuard } from '@nestjs/passport';
+import { Request as ExpressRequest } from 'express';
 
 class UserRequest<T> {
   user: T;
@@ -33,18 +34,37 @@ export class UsersController {
   // Lấy thông tin user hiện tại: GET /api/user
   @UseGuards(AuthGuard('jwt'))
   @Get('user')
-  async getCurrentUser(@Request() req): Promise<{ user: UserResponse }> {
-    const user = await this.usersService.findById(req.user.sub);
-    
-    const token = req.headers.authorization.split(' ')[1];
-    
+  async getCurrentUser(
+    @Request() req: ExpressRequest & { user: { id: number; username: string; email: string } }, 
+  ): Promise<{ user: UserResponse }> {
+    const fullUser = await this.usersService.findById(req.user.id); 
+
+    if (!fullUser) {
+      throw new NotFoundException('Không tìm thấy người dùng tương ứng với token.');
+    }
+
+    const authHeader = req.headers.authorization;
+    let token: string | undefined = undefined;
+
+    if (authHeader) {
+      const parts = authHeader.split(' ');
+      if (parts.length === 2 && parts[0].toLowerCase() === 'token') { 
+        token = parts[1];
+      }
+    }
+
+   
+    if (!token) {
+        throw new UnauthorizedException('Token không hợp lệ hoặc thiếu.');
+    }
+
     return {
       user: {
-        email: user.email,
+        email: fullUser.email,
         token: token,
-        username: user.username,
-        bio: user.bio,
-        image: user.image,
+        username: fullUser.username,
+        bio: fullUser.bio,
+        image: fullUser.image,
       },
     };
   }
