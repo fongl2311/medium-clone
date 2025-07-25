@@ -76,14 +76,15 @@ export class ArticlesService {
   async findAllArticles(
     query: { tag?: string; author?: string; limit?: number; offset?: number },
   ): Promise<ArticlesResponse> {
-    const { tag, author, limit = 20, offset = 0 } = query;
+    const limit = parseInt(query.limit as any, 10) || 20; 
+    const offset = parseInt(query.offset as any, 10) || 0; 
 
     const whereClause: any = {};
-    if (tag) {
-      whereClause.tagList = { has: tag };
+    if (query.tag) {
+      whereClause.tagList = { has: query.tag };
     }
-    if (author) {
-      whereClause.author = { username: author };
+    if (query.author) {
+      whereClause.author = { username: query.author };
     }
 
     const articles = await this.prisma.article.findMany({
