@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
-import { PrismaModule } from 'src/prisma/prisma.module';
 import { User, Article } from '@prisma/client';
 import slugify from 'slugify';
 
@@ -15,6 +14,8 @@ export interface SingleArticleResponse {
     tagList: string[];
     createdAt: Date;
     updatedAt: Date;
+    favorited: boolean;    
+    favoritesCount: number;  
     author: {
       username: string;
       bio: string | null;
@@ -22,7 +23,6 @@ export interface SingleArticleResponse {
     };
   };
 }
-
 
 export interface ArticlesResponse {
   articles: SingleArticleResponse['article'][];
@@ -52,16 +52,18 @@ export class ArticlesService {
       },
     });
 
-    return this.formatArticleResponse(newArticle);
+    return this.formatArticleResponse(newArticle, false, 0);
   }
 
-  // --- GET SINGLE ARTICLE ---
-  async findArticleBySlug(slug: string): Promise<SingleArticleResponse> {
+  async findArticleBySlug(slug: string, currentUser?: User): Promise<SingleArticleResponse> {
     const article = await this.prisma.article.findUnique({
       where: { slug },
       include: {
         author: {
           select: { username: true, bio: true, image: true },
+        },
+        _count: {
+          select: { favoritedBy: true },
         },
       },
     });
@@ -70,44 +72,90 @@ export class ArticlesService {
       throw new NotFoundException(`Không tìm thấy bài viết với slug: ${slug}`);
     }
 
-    return this.formatArticleResponse(article);
+    let isFavorited = false;
+    if (currentUser) {
+      const favorite = await this.prisma.userFavoriteArticle.findUnique({
+        where: { userId_articleSlug: { userId: currentUser.id, articleSlug: slug } }
+      });
+      isFavorited = !!favorite;
+    }
+
+    return this.formatArticleResponse(article, isFavorited, article._count.favoritedBy);
   }
 
-  async findAllArticles(
-    query: { tag?: string; author?: string; limit?: number; offset?: number },
-  ): Promise<ArticlesResponse> {
-    const limit = parseInt(query.limit as any, 10) || 20; 
-    const offset = parseInt(query.offset as any, 10) || 0; 
+async findAllArticles(
+  query: { tag?: string; author?: string; favorited?: string; limit?: number; offset?: number },
+  currentUser?: User,
+): Promise<ArticlesResponse> {
+  const { tag, author, favorited, limit = 20, offset = 0 } = query;
 
-    const whereClause: any = {};
-    if (query.tag) {
-      whereClause.tagList = { has: query.tag };
-    }
-    if (query.author) {
-      whereClause.author = { username: query.author };
-    }
+  const whereClause: any = {};
+  if (tag) {
+    whereClause.tagList = { has: tag };
+  }
+  if (author) {
+    whereClause.author = { username: author };
+  }
 
-    const articles = await this.prisma.article.findMany({
-      where: whereClause,
-      include: {
-        author: {
-          select: { username: true, bio: true, image: true },
-        },
-      },
-      skip: offset,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
+  let favoritedSlugs: string[] = [];
+
+  if (favorited && currentUser) {
+    const userFavorites = await this.prisma.userFavoriteArticle.findMany({
+      where: { userId: currentUser.id },
+      select: { articleSlug: true },
     });
-
-    const count = await this.prisma.article.count({ where: whereClause });
-
-    return {
-    articles: articles.map(article => this.formatArticleResponse(article).article),
-    articlesCount: count,
-    };
+    favoritedSlugs = userFavorites.map(fav => fav.articleSlug);
+    whereClause.slug = { in: favoritedSlugs };
+  } else if (favorited) {
+    return { articles: [], articlesCount: 0 };
   }
 
-  // --- UPDATE ARTICLE ---
+  const articles = await this.prisma.article.findMany({
+    where: whereClause,
+    include: {
+      author: {
+        select: { username: true, bio: true, image: true },
+      },
+      _count: { select: { favoritedBy: true } },
+    },
+    skip: offset,
+    take: limit,
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const count = await this.prisma.article.count({ where: whereClause });
+
+  const articleResponses = await Promise.all(
+    articles.map(async (article) => {
+      const favoritesCount = article._count?.favoritedBy || 0
+      let isFavorited = false
+
+      if (currentUser && favoritedSlugs.length) {
+        isFavorited = favoritedSlugs.includes(article.slug)
+      } else if (currentUser) {
+        const favorite = await this.prisma.userFavoriteArticle.findUnique({
+          where: {
+            userId_articleSlug: {
+              userId: currentUser.id,
+              articleSlug: article.slug,
+            },
+          },
+        });
+        isFavorited = !!favorite;
+      }
+
+      const formatted = await this.formatArticleResponse(article, isFavorited, favoritesCount);
+      return formatted.article;
+    })
+  );
+
+  return {
+    articles: articleResponses,
+    articlesCount: count,
+  };
+}
+
+
   async updateArticle(slug: string, userId: number, dto: UpdateArticleDto): Promise<SingleArticleResponse> {
     const existingArticle = await this.prisma.article.findFirst({
       where: { slug, authorId: userId },
@@ -130,7 +178,10 @@ export class ArticlesService {
       },
     });
     
-    return this.formatArticleResponse(updatedArticle);
+    const isFavorited = await this.prisma.userFavoriteArticle.findUnique({ where: { userId_articleSlug: { userId: userId, articleSlug: slug } } });
+    const currentFavoritesCount = await this.prisma.userFavoriteArticle.count({ where: { articleSlug: slug } });
+
+    return this.formatArticleResponse(updatedArticle, !!isFavorited, currentFavoritesCount);
   }
 
   async deleteArticle(slug: string, userId: number): Promise<void> {
@@ -139,17 +190,84 @@ export class ArticlesService {
     });
   }
 
+  async favoriteArticle(slug: string, userId: number): Promise<SingleArticleResponse> {
+    const article = await this.prisma.article.findUnique({
+      where: { slug },
+      include: {
+        author: { select: { username: true, bio: true, image: true } },
+        _count: { select: { favoritedBy: true } },
+      },
+    });
+
+    if (!article) {
+      throw new NotFoundException(`Article with slug ${slug} not found`);
+    }
+
+    await this.prisma.userFavoriteArticle.upsert({
+      where: { userId_articleSlug: { userId: userId, articleSlug: slug } },
+      update: {},
+      create: { userId: userId, articleSlug: slug },
+    });
+
+    const updatedArticle = await this.prisma.article.findUnique({
+      where: { slug },
+      include: {
+        author: { select: { username: true, bio: true, image: true } },
+        _count: { select: { favoritedBy: true } }, 
+      },
+    });
+
+    if (!updatedArticle) {
+      throw new InternalServerErrorException('Lỗi khi cập nhật trạng thái favorite.');
+    }
+
+    return this.formatArticleResponse(updatedArticle, true, updatedArticle._count.favoritedBy);
+  }
+
+  async unfavoriteArticle(slug: string, userId: number): Promise<SingleArticleResponse> {
+    const article = await this.prisma.article.findUnique({
+      where: { slug },
+      include: {
+        author: { select: { username: true, bio: true, image: true } },
+        _count: { select: { favoritedBy: true } }, 
+      },
+    });
+
+    if (!article) {
+      throw new NotFoundException('Bài viết không tồn tại.');
+    }
+
+    await this.prisma.userFavoriteArticle.delete({
+      where: { userId_articleSlug: { userId: userId, articleSlug: slug } },
+    });
+
+    const updatedArticle = await this.prisma.article.findUnique({
+      where: { slug },
+      include: {
+        author: { select: { username: true, bio: true, image: true } },
+        _count: { select: { favoritedBy: true } }, 
+      },
+    });
+
+    if (!updatedArticle) {
+      throw new InternalServerErrorException('Lỗi khi cập nhật trạng thái unfavorite.');
+    }
+
+    return this.formatArticleResponse(updatedArticle, false, updatedArticle._count.favoritedBy);
+  }
+
   private generateSlug(title: string): string {
     const baseSlug = slugify(title, { lower: true, strict: true });
     const randomSuffix = (Math.random() + 1).toString(36).substring(7);
     return `${baseSlug}-${randomSuffix}`;
   }
-
   private formatArticleResponse(
-    article: Article & { author: { username: string; bio: string | null; image: string | null; } }
-    ): SingleArticleResponse {
+    article: Article & { author: { username: string; bio: string | null; image: string | null; }; _count?: { favoritedBy: number } },
+    isFavorited: boolean,
+    favoritesCount: number
+  ): SingleArticleResponse {
     return {
-        article: {
+      article: {
         slug: article.slug,
         title: article.title,
         description: article.description,
@@ -157,13 +275,14 @@ export class ArticlesService {
         tagList: article.tagList,
         createdAt: article.createdAt,
         updatedAt: article.updatedAt,
+        favorited: isFavorited, 
+        favoritesCount: favoritesCount, 
         author: {
-            username: article.author.username,
-            bio: article.author.bio,
-            image: article.author.image,
+          username: article.author.username,
+          bio: article.author.bio,
+          image: article.author.image,
         },
-        },
+      },
     };
-    }
+  }
 }
-export { CreateArticleDto , UpdateArticleDto};
