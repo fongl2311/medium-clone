@@ -35,7 +35,7 @@ export class ArticlesController {
     @Request() req: ExpressRequest & { user: User },
     @Body('article') createArticleDto: CreateArticleDto,
   ) {
-    return this.articlesService.createArticle(req.user, createArticleDto);
+    return this.articlesService.create(req.user, createArticleDto);
   }
 
   @UseGuards(OptionalAuthGuard) 
