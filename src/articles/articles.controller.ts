@@ -31,7 +31,7 @@ export class ArticlesController {
   // POST /api/articles - Create Article
   @UseGuards(AuthGuard('jwt')) // Yêu cầu đăng nhập
   @Post()
-  createArticle(
+  create(
     @Request() req: ExpressRequest & { user: User },
     @Body('article') createArticleDto: CreateArticleDto,
   ) {
