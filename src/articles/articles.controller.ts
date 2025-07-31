@@ -28,13 +28,13 @@ export class ArticlesController {
   constructor(private readonly articlesService: ArticlesService) {}
 
   // POST /api/articles - Create Article
-  @UseGuards(AuthGuard('jwt')) // Yêu cầu đăng nhập
+  @UseGuards(AuthGuard('jwt'))
   @Post()
-  createArticle(
+  create(
     @Request() req: ExpressRequest & { user: User },
     @Body('article') createArticleDto: CreateArticleDto,
   ) {
-    return this.articlesService.createArticle(req.user, createArticleDto);
+    return this.articlesService.create(req.user, createArticleDto);
   }
 
   @UseGuards(OptionalAuthGuard) 
