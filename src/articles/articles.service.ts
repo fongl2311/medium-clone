@@ -184,10 +184,15 @@ async findAllArticles(
     return this.formatArticleResponse(updatedArticle, !!isFavorited, currentFavoritesCount);
   }
 
-  async deleteArticle(slug: string, userId: number): Promise<void> {
-    await this.prisma.article.delete({
-      where: { slug, authorId: userId },
-    });
+async deleteArticle(slug: string, userId: number): Promise<{ message: string }> { 
+  const existingArticle = await this.prisma.article.findFirst({
+    where: { 
+      slug: slug,
+      authorId: userId 
+  });
+
+  if (!existingArticle) {
+    throw new NotFoundException('Bài viết không tồn tại hoặc bạn không có quyền xóa.');
   }
 
   async favoriteArticle(slug: string, userId: number): Promise<SingleArticleResponse> {
@@ -255,6 +260,12 @@ async findAllArticles(
 
     return this.formatArticleResponse(updatedArticle, false, updatedArticle._count.favoritedBy);
   }
+  await this.prisma.article.delete({
+    where: { id: existingArticle.id },
+  });
+  
+  return { message: 'Bài viết đã được xóa thành công.' };
+}
 
   private generateSlug(title: string): string {
     const baseSlug = slugify(title, { lower: true, strict: true });
@@ -284,5 +295,7 @@ async findAllArticles(
         },
       },
     };
+
   }
 }
+

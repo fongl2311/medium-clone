@@ -20,6 +20,8 @@ import {
   SingleArticleResponse,
   ArticlesResponse,
 } from './articles.service';
+import { CreateArticleDto } from "./dto/create-article.dto";
+import { UpdateArticleDto } from "./dto/update-article.dto";
 import { User } from '@prisma/client';
 import { OptionalAuthGuard } from "../auth/optional-auth.guard";
 import { CreateArticleDto } from "./dto/create-article.dto";
@@ -33,11 +35,11 @@ export class ArticlesController {
   // POST /api/articles - Create Article
   @UseGuards(AuthGuard('jwt'))
   @Post()
-  createArticle(
+  create(
     @Request() req: ExpressRequest & { user: User },
     @Body('article') createArticleDto: CreateArticleDto,
   ) {
-    return this.articlesService.createArticle(req.user, createArticleDto);
+    return this.articlesService.create(req.user, createArticleDto);
   }
 
   // GET /api/articles/:slug - Get Single Article
@@ -70,15 +72,13 @@ export class ArticlesController {
     return this.articlesService.updateArticle(slug, req.user.id, updateArticleDto);
   }
 
-  // DELETE /api/articles/:slug - Delete Article
   @UseGuards(AuthGuard('jwt'))
   @Delete(':slug')
-  async deleteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
-    return this.articlesService.deleteArticle(slug, req.user.id);
+  async deleteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }): Promise<{ message: string }> {
+    const userId = req.user.id;
+    return this.articlesService.deleteArticle(slug, userId); 
   }
-
-  // --- FAVORITE/UNFAVORITE ARTICLE ---
-  // POST /api/articles/:slug/favorite
+  
   @UseGuards(AuthGuard('jwt'))
   @Post(':slug/favorite')
   async favoriteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
@@ -91,4 +91,5 @@ export class ArticlesController {
   async unfavoriteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
     return this.articlesService.unfavoriteArticle(slug, req.user.id);
   }
+}
 }
