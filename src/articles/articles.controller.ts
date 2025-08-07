@@ -11,16 +11,21 @@ import {
   Query,
   NotFoundException,
   UnauthorizedException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ArticlesService,
+  SingleArticleResponse,
   ArticlesResponse,
 } from './articles.service';
 import { CreateArticleDto } from "./dto/create-article.dto";
 import { UpdateArticleDto } from "./dto/update-article.dto";
 import { User } from '@prisma/client';
 import { OptionalAuthGuard } from "../auth/optional-auth.guard";
+import { CreateArticleDto } from "./dto/create-article.dto";
+import { UpdateArticleDto } from "./dto/update-article.dto";
 import { Request as ExpressRequest } from 'express';
 
 @Controller('articles')
@@ -37,20 +42,23 @@ export class ArticlesController {
     return this.articlesService.create(req.user, createArticleDto);
   }
 
-  @UseGuards(OptionalAuthGuard) 
+  // GET /api/articles/:slug - Get Single Article
+  @UseGuards(OptionalAuthGuard)
   @Get(':slug')
-  async getArticleBySlug(@Param('slug') slug: string, @Request() req: ExpressRequest & { user?: User }) {
+  async getArticleBySlug(
+    @Param('slug') slug: string,
+    @Request() req: ExpressRequest & { user?: User }
+  ) {
     return this.articlesService.findArticleBySlug(slug);
   }
-
   // GET /api/articles - List Articles
   @UseGuards(OptionalAuthGuard)
   @Get()
   async getArticles(
-    @Query() queryParams: { tag?: string; author?: string; limit?: number; offset?: number },
+    @Query() queryParams: { tag?: string; author?: string; favorited?: string; limit?: number; offset?: number },
     @Request() req: { user?: User },
   ): Promise<ArticlesResponse> {
-    return this.articlesService.findAllArticles(queryParams); 
+    return this.articlesService.findAllArticles(queryParams);
   }
 
   // PUT /api/articles/:slug - Update Article
@@ -70,4 +78,18 @@ export class ArticlesController {
     const userId = req.user.id;
     return this.articlesService.deleteArticle(slug, userId); 
   }
+  
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':slug/favorite')
+  async favoriteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
+    return this.articlesService.favoriteArticle(slug, req.user.id);
+  }
+
+  // DELETE /api/articles/:slug/favorite
+  @UseGuards(AuthGuard('jwt'))
+  @Delete(':slug/favorite')
+  async unfavoriteArticle(@Param('slug') slug: string, @Request() req: ExpressRequest & { user: User }) {
+    return this.articlesService.unfavoriteArticle(slug, req.user.id);
+  }
+}
 }
